@@ -1,0 +1,25 @@
+{
+  "name": "k-chess",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@mdi/font": "^7.4.47",
+    "chess.js": "^1.0.0",
+    "chessground": "^9.1.1",
+    "pinia": "^3.0.1",
+    "socket.io-client": "^4.8.1",
+    "sweetalert2": "^11.17.2",
+    "vue": "^3.5.13",
+    "vuetify": "^3.7.12"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^4.4.7",
+    "vite": "^4.4.7"
+  }
+}
