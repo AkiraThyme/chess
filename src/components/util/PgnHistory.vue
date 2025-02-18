@@ -1,33 +1,42 @@
 <template>
-  <div>
+  <div class="pgn-history-container">
     <!-- Game Result Display -->
     <div v-if="gameResult" class="game-result">
       {{ gameResult }}
     </div>
 
-    <h1>Move History</h1>
-    <!-- Move History -->
-    <ul class="history-board" style="height: 50vh; overflow: auto;">
-      <li v-for="(move, index) in history" :key="index" @click="moveToHistory(index)" style="padding: 0 !important" :class="{ 'item-select': select === index }">
-        <span>
-          <label v-if="index % 2 === 0">{{ (index / 2) + 1 }}.</label>
-          <img type="image/svg+xml" alt="" :src="urlPiece(move)" height="25" width="25">
-          <label>{{ move.from }} &gt; {{ move.to }} {{ move.san }}</label>
-        </span>
-      </li>
-    </ul>
+    <h1 class="title">Move History</h1>
 
-    <!-- Controls -->
-    <div v-show="!active">
-      <v-btn class="waves-effect waves-light btn" @click="moveToHistory(select - 1)">
+    <!-- Move History List -->
+    <div class="history-card">
+      <ul class="history-list">
+        <li
+          v-for="(move, index) in history"
+          :key="index"
+          @click="moveToHistory(index)"
+          :class="{ 'item-select': select === index }"
+        >
+          <span class="move-item">
+            <label v-if="index % 2 === 0">{{ Math.floor(index / 2) + 1 }}.</label>
+            <img :src="urlPiece(move)" alt="piece" class="piece-icon" />
+            <label>{{ move.san }}</label>
+          </span>
+        </li>
+        <li v-if="history.length === 0" class="empty-message">No moves yet.</li>
+      </ul>
+    </div>
+
+    <!-- Playback Controls -->
+    <div v-show="!active" class="controls">
+      <v-btn class="btn" @click="moveToHistory(select - 1)">
         <<</v-btn>
-      <v-btn class="waves-effect waves-light btn" @click="play">
+      <v-btn class="btn" @click="play">
         {{ played ? '||' : '>' }}
       </v-btn>
-      <v-btn class="waves-effect waves-light btn" @click="moveToHistory(select + 1)">
+      <v-btn class="btn" @click="moveToHistory(select + 1)">
         >></v-btn>
-      <label>{{ velo }}</label>
-      <input v-model="velo" type="range" min="0" max="5" step="1">
+      <span class="speed-label">{{ velo }}</span>
+      <input v-model="velo" type="range" min="0" max="5" step="1" class="speed-slider" />
     </div>
   </div>
 </template>
@@ -36,47 +45,44 @@
 import { useGameStore } from '../../store/store';
 import { computed } from 'vue';
 
-let playEvent = 1;
+let playEvent = null;
 
 export default {
   name: 'PgnHistory',
   props: {
     history: {
       type: Array,
-      required: true
+      required: true,
     },
     active: {
       type: Boolean,
-      required: false,
-      default: false
+      default: false,
     },
     humanvspc: {
       type: Function,
-      required: false,
-      default: () => false
-    }
+      default: () => false,
+    },
   },
   setup() {
     const gameStore = useGameStore();
-
     const gameResult = computed(() => {
       if (gameStore.board.wins === 'white') return `Winner: ${gameStore.whitePlayer}`;
       if (gameStore.board.wins === 'black') return `Winner: ${gameStore.blackPlayer}`;
       if (gameStore.board.wins === 'draw') return 'Draw';
       return '';
     });
-
     return { gameResult };
   },
   data() {
     return {
-      velo: 2, // speed of move playback
-      select: -1, // selected move in the history
-      played: false // play status
+      velo: 2,
+      select: -1,
+      played: false,
     };
   },
   methods: {
     urlPiece(move) {
+      if (!move || !move.piece || !move.color) return '';
       return new URL(`../../assets/images/pieces/merida/${move.color}${move.piece.toUpperCase()}.svg`, import.meta.url).href;
     },
     moveToHistory(index) {
@@ -86,6 +92,7 @@ export default {
         return;
       }
       this.select = index;
+
       let pgnReturn = '';
       let jugada = 0;
 
@@ -114,70 +121,102 @@ export default {
       } else {
         clearInterval(playEvent);
       }
-    }
+    },
   },
   watch: {
-    velo(newVal) {
-      clearInterval(playEvent);
-      this.played = false;
-      this.play();
-    }
-  }
+    velo() {
+      if (this.played) {
+        clearInterval(playEvent);
+        this.play();
+      }
+    },
+  },
 };
 </script>
 
 <style scoped>
-.game-result {
-  font-size: 18px;
+.pgn-history-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  height: 100%;
+  padding: 1rem;
+  background-color: #f4f4f4;
+  border-radius: 8px;
+}
+
+.title {
+  font-size: 1.5rem;
   font-weight: bold;
-  margin-bottom: 10px;
-  color: #4caf50;
-}
-
-.waves-effect {
-    position: relative;
-    cursor: pointer;
-    display: inline-block;
-    overflow: hidden;
-    -webkit-user-select: none;
-    -moz-user-select: none;
-    -ms-user-select: none;
-    user-select: none;
-    -webkit-tap-highlight-color: transparent;
-    vertical-align: middle;
-    z-index: 1;
-    will-change: opacity, transform;
-    transition: all .3s ease-out;
-}
-
-.btn{
-  text-decoration: none;
-  color: #fff;
-  background-color: #1B5E20;
+  margin-bottom: 0.5rem;
   text-align: center;
-  letter-spacing: .5px;
-  transition: .2s ease-out;
+}
+
+.history-card {
+  background-color: white;
+  border-radius: 12px;
+  padding: 1rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  width: 100%;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.history-list {
+  list-style-type: none;
+  padding: 0;
+  margin: 0;
+}
+
+.move-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1rem;
   cursor: pointer;
 }
 
-.btn, .btn-large, .btn-flat {
-    border: none;
-    border-radius: 2px;
-    display: inline-block;
-    height: 36px;
-    line-height: 36px;
-    outline: 0;
-    padding: 0 2rem;
-    text-transform: uppercase;
-    vertical-align: middle;
-    -webkit-tap-highlight-color: transparent;
-}
-
-ul.history-board li:hover {
-  background-color: #b9d4cb;
+.piece-icon {
+  height: 20px;
+  width: 20px;
 }
 
 .item-select {
-  background-color: #5f6b44;
+  background-color: #e0f2f1;
+  border-radius: 8px;
 }
+
+.empty-message {
+  text-align: center;
+  font-style: italic;
+  color: #999;
+  margin-top: 1rem;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.btn {
+  background-color: #1B5E20;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+}
+
+.speed-label {
+  margin-left: 0.5rem;
+}
+
+.speed-slider {
+  flex-grow: 1;
+  max-width: 100px;
+}
+
 </style>

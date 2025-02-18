@@ -13,9 +13,9 @@ export const useGameStore = defineStore('gameStore', () => {
     pgn: '',
   });
 
-  const baseTime = 60;  // Starting time for each player
-  const increment = 5;  // Increment per move in seconds
-  const gameStarted = ref(false);  // Flag to track whether the game has started
+  const baseTime = 60;
+  const increment = 5;
+  const gameStarted = ref(false);
 
   const times = ref({
     white: baseTime,
@@ -24,6 +24,9 @@ export const useGameStore = defineStore('gameStore', () => {
 
   const turn = ref('white');
 
+  const whiteTimerInterval = ref(null);
+  const blackTimerInterval = ref(null);
+
   const updatePlayerNames = (whiteName, blackName) => {
     whitePlayer.value = whiteName;
     blackPlayer.value = blackName;
@@ -31,50 +34,58 @@ export const useGameStore = defineStore('gameStore', () => {
     board.value.blackPlayer = blackName;
   };
 
-  const startTimer = () => {
-    if (!gameStarted.value) return;  // Don't start the timer if the game hasn't started
-    if (countdownInterval) clearInterval(countdownInterval);
-    countdownInterval = setInterval(decrementTime, 1000);
+  const startTimer = (color) => {
+    if (!gameStarted.value) return;
+
+    stopTimer(color); // Ensure there's no multiple intervals
+
+    if (color === 'white') {
+      whiteTimerInterval.value = setInterval(() => {
+        times.value.white -= 1;
+        if (times.value.white <= 0) stopTimer('white');
+      }, 1000);
+    } else {
+      blackTimerInterval.value = setInterval(() => {
+        times.value.black -= 1;
+        if (times.value.black <= 0) stopTimer('black');
+      }, 1000);
+    }
   };
 
-  const decrementTime = () => {
-    if (turn.value === 'white') {
-      times.value.white -= 1;
-    } else if (turn.value === 'black') {
-      times.value.black -= 1;
-    }
-    if (times.value.white <= 0 || times.value.black <= 0) {
-      clearInterval(countdownInterval);
+  const stopTimer = (color) => {
+    if (color === 'white' && whiteTimerInterval.value) {
+      clearInterval(whiteTimerInterval.value);
+      whiteTimerInterval.value = null;
+    } else if (color === 'black' && blackTimerInterval.value) {
+      clearInterval(blackTimerInterval.value);
+      blackTimerInterval.value = null;
     }
   };
 
   const switchTurn = () => {
-    if (!gameStarted.value) {
-      gameStarted.value = true;  // Mark the game as started after the first move
-    }
-  
-    // Reset the timer to baseTime for the current player after moving
-    if (turn.value === 'white') {
-      times.value.white = baseTime;
-    } else if (turn.value === 'black') {
-      times.value.black = baseTime;
-    }
-  
-    // Switch turns
-    turn.value = turn.value === 'white' ? 'black' : 'white';
-  
-    startTimer();  // Start timer for the next player
-  };
-  
+    if (!gameStarted.value) gameStarted.value = true;
 
-  const stopTimer = () => {
-    clearInterval(countdownInterval);
+    if (turn.value === 'white') {
+      times.value.white += increment; // Add increment to white after the move
+      stopTimer('white');
+      turn.value = 'black';
+      startTimer('black');
+    } else {
+      times.value.black += increment; // Add increment to black after the move
+      stopTimer('black');
+      turn.value = 'white';
+      startTimer('white');
+    }
   };
 
   const resetGame = () => {
+    stopTimer('white');
+    stopTimer('black');
+
     times.value = { white: baseTime, black: baseTime };
     turn.value = 'white';
-    gameStarted.value = false;  // Reset gameStarted flag
+    gameStarted.value = false;
+
     board.value = {
       whitePlayer: whitePlayer.value,
       blackPlayer: blackPlayer.value,
@@ -85,15 +96,13 @@ export const useGameStore = defineStore('gameStore', () => {
     };
   };
 
-  let countdownInterval = null;
-
   return {
     whitePlayer,
     blackPlayer,
     board,
     times,
     turn,
-    gameStarted,  // Export gameStarted flag
+    gameStarted,
     updatePlayerNames,
     resetGame,
     startTimer,

@@ -9,4 +9,14 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  build: {
+    rollupOptions: {
+      input: 'index.html',
+    }
+  },
+  server: {
+    cors: true,
+    host: '10.0.10.33',
+    port: 8080
+  }
 })

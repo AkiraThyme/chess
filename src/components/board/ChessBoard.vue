@@ -1,98 +1,173 @@
 <template>
-  <div class="game-container" :class="computedTheme" >
+  <div class="game-container" :class="computedTheme">
     <div>
       <BoardTimer />
     </div>
 
-    <!-- Wrap the board and history side-by-side -->
     <div class="game-content">
+
+      <div class="chat-container">
+        <Chat v-if="shouldShowChat" :playerColor="playerColor" />
+      </div>
+
       <div class="chessboard-container">
         <div ref="board" class="chessboard"></div>
       </div>
 
       <div class="history-container">
-        <PgnHistory :history="moveHistory" />
+        <PgnHistory :history="moveHistory"  />
       </div>
     </div>
   </div>
 </template>
 
-
 <script>
-import { useGameStore } from '../../store/store'; // Ensure the import path is correct
+import { useGameStore } from '../../store/store';
 import { Chess } from 'chess.js';
 import { Chessground } from 'chessground';
-import { InitializeFromFen, Search, FormatMove, ResetGame, GenerateValidMoves } from '../../js/chess/engine'; // Adjust path if needed
+import {
+  InitializeFromFen,
+  Search,
+  FormatMove,
+  ResetGame,
+  GenerateValidMoves
+} from '../../js/chess/engine';
 import BoardTimer from '../util/BoardTimer.vue';
 import PgnHistory from '../util/PgnHistory.vue';
+import Chat from '../chat/Chat.vue';
 import Swal from 'sweetalert2';
-
+import socket from '../../services/socket'; // Use shared socket
 
 export default {
   props: {
-    theme: {
-      type: String,
-      default: 'marble'
-    },
-    pieceStyle: {
-      type: String,
-      default: 'cburnett'
-    }
+    theme: { type: String, default: 'marble' },
+    pieceStyle: { type: String, default: 'cburnett' }
   },
+  components: { BoardTimer, PgnHistory, Chat },
   data() {
     return {
       chess: new Chess(),
       board: null,
       moveHistory: [],
       isGameOver: false,
+      isPlayerVsPlayer: false,
+      playerColor: null,
+      opponentFound: false
     };
   },
-  components: { BoardTimer, PgnHistory },
   computed: {
     computedTheme() {
       return this.theme ? `theme-${this.theme}` : 'theme-wood2';
     },
-    computedPieceStyle() {
-      return this.pieceStyle || 'cburnett';
+    shouldShowChat() {
+      return this.isPlayerVsPlayer && this.opponentFound;
     }
   },
   created() {
-    this.chess = new Chess();
-    ResetGame(); // Ensure engine resets before board initializes
-  },
-  mounted() {
-    this.$nextTick(() => {
-      this.initializeBoard();
-    });
-  },
-  methods: {
-    initializeBoard() {
-      if (!this.$refs.board) {
-        console.error("Board reference not found!");
+    socket.on('assignColor', (data) => {
+      if (!data || !data.color) {
+        console.error('Invalid assignColor data:', data);
         return;
       }
 
+      this.playerColor = data.color;
+      this.opponentFound = true;
+      Swal.close();
+
+      Swal.fire({
+        icon: 'success',
+        title: 'Opponent Found!',
+        text: `You are playing as ${data.color.toUpperCase()}.`,
+        timer: 2000,
+        showConfirmButton: false
+      });
+
+      this.initializeBoard();
+    });
+
+    socket.on('defaultWin', (data) => {
+      Swal.fire({
+        icon: 'info',
+        title: 'Default Win',
+        text: `Opponent ran out of time. ${data.winnerColor === 'white' ? 'White' : 'Black'} wins!`,
+        confirmButtonText: 'OK'
+      }).then(() => {
+        this.resetGamePrompt();
+      });
+    });
+
+
+
+    socket.on('matchFound', () => {
+      this.opponentFound = true;
+      Swal.fire({
+        icon: 'info',
+        title: 'Match Found!',
+        text: 'Your opponent is ready. Good luck!',
+        timer: 2000,
+        showConfirmButton: false
+      });
+    });
+
+
+    socket.on('move', (data) => {
+      if (!this.isPlayerVsPlayer) return;
+
+      if (!data || !data.from || !data.to) {
+        console.error('Invalid move data received:', data);
+        return;
+      }
+
+      // Optional: Sync board state from `fen` if you use it in the future
+      // this.chess.load(data.fen);
+
+      const move = this.chess.move({ from: data.from, to: data.to });
+
+      if (move) {
+        this.moveHistory.push(move);
+        this.updateBoard();
+        this.switchTurn();
+      } else {
+        console.error('Invalid move received from socket:', data);
+      }
+    });
+
+
+    socket.on('opponentDisconnected', () => {
+      Swal.fire('Opponent Disconnected', 'Your opponent left the game.', 'warning').then(() => {
+        this.resetGamePrompt();
+      });
+    });
+
+    socket.on('noOpponentFound', () => {
+      Swal.fire('No Opponent Found', 'Try again later or play vs AI.', 'info');
+      this.isPlayerVsPlayer = false;
+      this.initializeBoard();
+    });
+
+    ResetGame();
+  },
+  mounted() {
+    this.showModeSelectionPopup();
+  },
+  methods: {
+    initializeBoard() {
+      if (!this.$refs.board) return;
+
       this.board = Chessground(this.$refs.board, {
+        orientation: this.playerColor === 'black' ? 'black' : 'white',
         viewOnly: false,
         turnColor: 'white',
         animation: { duration: 300 },
         movable: {
-          free: true,
+          free: false,
           premove: true,
           dests: this.getLegalMoves(),
           events: { after: this.onUserMove }
         },
         highlight: { lastMove: true, check: true },
-        fen: "start",
         drawable: { enabled: true },
         showDests: true
-      });
-
-      // Force a redraw after mounting
-      this.$nextTick(() => {
-        if (this.board) {
-          this.board.redrawAll();
-        }
       });
 
       this.updateBoard();
@@ -101,189 +176,139 @@ export default {
       if (!this.board) return;
       this.board.set({
         fen: this.chess.fen(),
+        turnColor: this.chess.turn() === 'w' ? 'white' : 'black',
         movable: { dests: this.getLegalMoves() }
       });
-      console.log("Board updated with FEN:", this.chess.fen());
     },
     onUserMove(orig, dest) {
-      console.log("User move attempt:", { from: orig, to: dest });
-
-      const legalMoves = this.getLegalMoves();
-      if (!legalMoves.has(orig) || !legalMoves.get(orig).includes(dest)) {
-        console.error("Invalid move! Reverting...");
-        this.board.set({ fen: this.chess.fen() });
+      if (this.isPlayerVsPlayer && this.chess.turn() !== this.playerColor[0]) {
+        console.log('Not your turn!');
+        this.updateBoard();
         return;
       }
 
       const move = this.chess.move({ from: orig, to: dest });
+
       if (move) {
         this.moveHistory.push(move);
-        console.log("Move applied:", move);
         this.updateBoard();
-        this.checkGameOver(); // <<<<<<<<<< ADD THIS LINE
-        if (!this.isGameOver) {
-          this.switchTurn();
+        this.checkGameOver();
+
+        if (this.isPlayerVsPlayer) {
+          // Emit only essential data, avoid chess or board object
+          socket.emit('move', {
+            from: orig,
+            to: dest,
+            fen: this.chess.fen() // Optional if you want to sync state
+          });
+        } else {
           this.makeEngineMove();
         }
       } else {
-        console.error("Invalid move execution! Reverting...");
-        this.board.set({ fen: this.chess.fen() });
+        this.updateBoard();
       }
     },
 
     makeEngineMove() {
-      console.log("AI is thinking...");
+      if (this.isPlayerVsPlayer) return;
 
       InitializeFromFen(this.chess.fen());
-
       setTimeout(() => {
         Search((bestMove) => {
-          console.log("Search returned:", bestMove);
-
           if (bestMove) {
             const move = FormatMove(bestMove);
             const appliedMove = this.chess.move(move);
-
             if (appliedMove) {
               this.moveHistory.push(appliedMove);
-              console.log("AI move applied:", appliedMove);
               this.updateBoard();
-              this.checkGameOver(); // <<<<<<<<<< ADD THIS LINE
-              if (!this.isGameOver) {
-                this.switchTurn();
-              }
-            } else {
-              console.error("Engine move was invalid:", move);
+              this.checkGameOver();
             }
-          } else {
-            console.warn("No engine move found.");
           }
         }, 8, null);
-      }, 1000);
+      }, 500);
     },
     getLegalMoves() {
-      InitializeFromFen(this.chess.fen()); // Sync engine state
-
+      InitializeFromFen(this.chess.fen());
       const dests = new Map();
-      const moves = GenerateValidMoves(); // Get valid moves from engine
+      const moves = GenerateValidMoves();
 
-      if (!Array.isArray(moves) || moves.length === 0) {
-        console.warn("No valid moves found.");
-        return dests;
-      }
-
-      moves.forEach(move => {
-        const formattedMove = FormatMove(move); // Ensure the move is correctly formatted
-        if (formattedMove.length < 4) return;
-
-        const from = formattedMove.slice(0, 2); // Extract "e2"
-        const to = formattedMove.slice(2, 4);   // Extract "e4"
-
-        if (!dests.has(from)) {
-          dests.set(from, []);
-        }
+      moves.forEach((move) => {
+        const formattedMove = FormatMove(move);
+        const from = formattedMove.substring(0, 2);
+        const to = formattedMove.substring(2, 4);
+        if (!dests.has(from)) dests.set(from, []);
         dests.get(from).push(to);
       });
 
-      console.log("Formatted legal moves:", dests);
       return dests;
     },
     switchTurn() {
       const store = useGameStore();
-      store.switchTurn();  // Switch turn in store
-      this.startTimer();   // Start timer for the next player
-    },
-    startTimer() {
-      const store = useGameStore();
-      store.startTimer();  // Start the timer from the store for the current player
-    },
-    moveToHistory(index) {
-      if (!this.history || this.history.length === 0) {
-        return; // No history data available, exit early
-      }
-
-      if (index < 0 || index >= this.history.length) {
-        clearInterval(playEvent);
-        this.played = false;
-        return;
-      }
-      
-      this.select = index;
-      let pgnReturn = '';
-      let jugada = 0;
-      
-      for (let i = 0; i <= index; i++) {
-        if (i % 2 === 0) {
-          jugada++;
-          pgnReturn += `${jugada}. `;
-        }
-        pgnReturn += `${this.history[i].san} `;
-      }
-
-      if (!this.active) {
-        this.$emit('move', { pgn: pgnReturn });
-        return;
-      }
-      if (this.humanvspc()) {
-        this.$emit('move', { pgn: pgnReturn });
-      }
+      store.switchTurn();
+      this.updateBoard();
+      store.startTimer();
     },
     checkGameOver() {
-      if (this.chess.isCheckmate()) {
+      if (this.chess.isCheckmate() || this.chess.isDraw() || this.chess.isStalemate()) {
         this.isGameOver = true;
-        const winner = this.chess.turn() === 'w' ? 'Black' : 'White';
-        this.showEndGamePopup(`${winner} wins by checkmate`);
-      } else if (this.chess.isDraw()) {
-        this.isGameOver = true;
-        this.showEndGamePopup('Draw');
-      } else if (this.chess.isStalemate()) {
-        this.isGameOver = true;
-        this.showEndGamePopup('Stalemate');
+        Swal.fire(
+          'Game Over',
+          this.chess.isCheckmate()
+            ? `${this.chess.turn() === 'w' ? 'Black' : 'White'} wins!`
+            : 'Draw!',
+          'info'
+        ).then(() => {
+          this.resetGamePrompt();
+        });
       }
     },
-    showEndGamePopup(result) {
-      const store = useGameStore();
-      store.stopTimer();
-
-      const message =
-        result === 'Draw' ? 'The game is a Draw!' : `${result} wins by Checkmate!`;
-
-      Swal.fire({
-        title: 'Game Over!',
-        text: message,
-        icon: 'info',
-        showDenyButton: true,
-        confirmButtonText: 'Play vs AI',
-        denyButtonText: 'Play vs Player',
-      }).then((result) => {
-        if (result.isConfirmed) {
-          this.resetGame(true);
-        } else if (result.isDenied) {
-          this.resetGame(false);
-        }
-      });
-    },
-    resetGame(vsAI) {
+    resetGamePrompt() {
       this.chess.reset();
       this.moveHistory = [];
       this.isGameOver = false;
-      this.updateBoard();
+      this.showModeSelectionPopup();
+    },
+    showModeSelectionPopup() {
+      Swal.fire({
+        title: 'Choose Game Mode',
+        text: 'Play vs AI or Find a Player?',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Play vs AI',
+        cancelButtonText: 'Find Player',
+        customClass: {
+          confirmButton: 'custom-ai-btn',
+          cancelButton: 'custom-player-btn'
+        }
+      }).then((result) => {
+        if (result.isConfirmed) {
+          this.isPlayerVsPlayer = false;
+          this.opponentFound = false; // Important to ensure chat is hidden
+          this.initializeBoard();
+        } else {
+          this.isPlayerVsPlayer = true;
+          this.findOpponent();
+        }
+      });
+    },
+    findOpponent() {
+      Swal.fire({
+        title: 'Finding Player...',
+        text: 'Please wait while we find an opponent.',
+        allowOutsideClick: false,
+        didOpen: () => {
+          Swal.showLoading();
+        }
+      });
 
-      const store = useGameStore();
-      store.resetTimer();
-
-      // You can handle vsAI logic as needed
-      console.log('Starting new game vs', vsAI ? 'AI' : 'Player');
+      socket.emit('findOpponent');
     }
   },
-  watch: {
-    moveHistory(newVal) {
-      console.log("Move history updated:", newVal);
-    }
+  beforeUnmount() {
+    // socket.disconnect();
   }
 };
 </script>
-
 
 
 
@@ -311,15 +336,23 @@ export default {
   height: 90vh;  /* Full viewport height */
 }
 
+.chat-container {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  width: 20%; /* Adjust width as needed */
+  margin-right: 10px;
+}
+
 /* Row container for chessboard and history */
 .game-content {
   display: flex;
   justify-content: space-between;
-  width: 55%;
+  width: 88%;
   height: 69vh;
   padding: 10px;
   overflow: hidden;
-  margin-left: 276px;
+  margin-left: 38px;
 }
 
 /* Chessboard container */
@@ -362,4 +395,30 @@ export default {
   opacity: 0.5;
   pointer-events: none;
 }
+
+.custom-ai-btn {
+  background-color: #4CAF50 !important; /* Green */
+  color: white !important;
+  border: none !important;
+  border-radius: 5px;
+  padding: 10px 20px;
+}
+
+.custom-player-btn {
+  background-color: #F44336 !important; /* Red */
+  color: white !important;
+  border: none !important;
+  border-radius: 5px;
+  padding: 10px 20px;
+}
+
+.custom-ai-btn:hover {
+  background-color: #45a049 !important;
+}
+
+.custom-player-btn:hover {
+  background-color: #e53935 !important;
+}
+
+
 </style>
