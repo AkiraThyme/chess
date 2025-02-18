@@ -1,4 +1,4 @@
-const socket = io('http://10.0.10.33:8080');
+const socket = io('http://10.0.10.33:8076');
 
 
 // Handle color assignment
@@ -14,7 +14,7 @@ socket.on('assignColor', (color) => {
   }
 });
 
-socket.on('chat message', (msg) => {
+socket.on('chat message', (msg) => {s
   console.log('Message received:', msg);
   window.dispatchEvent(new CustomEvent('chatMessage', { detail: msg }));
 });
@@ -25,6 +25,13 @@ socket.on('gameOver', (data) => {
   // You can show your custom popup/modal logic here
   showGameOverPopup(data.winner, data.reason);
 });
+
+// Handle match found
+socket.on('matchFound', () => {
+  console.log('Opponent found, starting the game!');
+  window.dispatchEvent(new CustomEvent('matchFound'));
+});
+
 
 
 // Handle opponent's move

@@ -3,28 +3,31 @@ const http = require('http');
 const express = require('express');
 
 const app = express();
-const util = require('util');
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: '*' }
 });
 
-let waitingPlayer = null;
+let waitingPlayers = []; // Queue to store waiting players
+let matchmakingTimeouts = {}; // Keep track of matchmaking timeouts
 
 io.on('connection', (socket) => {
-  console.log('A user connected:', socket.id);
+  console.log('A user connected:', socket.id);  // This should print when the player connects
 
+  // When a player wants to find an opponent
   socket.on('findOpponent', () => {
-    if (waitingPlayer) {
+    console.log('Waiting Players Queue:', waitingPlayers.length); 
+    if (waitingPlayers.length > 0) {
+      const opponent = waitingPlayers.shift(); // Match with the first player in the queue
       socket.emit('assignColor', { color: 'black' });
-      waitingPlayer.emit('assignColor', { color: 'white' });
+      opponent.emit('assignColor', { color: 'white' });
 
       socket.emit('matchFound');
-      waitingPlayer.emit('matchFound');
+      opponent.emit('matchFound');
 
-      // Assign opponents to each other
-      socket.opponent = waitingPlayer;
-      waitingPlayer.opponent = socket;
+      // Assign each player their opponent
+      socket.opponent = opponent;
+      opponent.opponent = socket;
 
       // Initialize game data...
       const initialTime = 60;
@@ -38,7 +41,7 @@ io.on('connection', (socket) => {
       };
 
       socket.gameData = gameData;
-      waitingPlayer.gameData = gameData;
+      opponent.gameData = gameData;
 
       const startTimer = () => {
         gameData.interval = setInterval(() => {
@@ -55,25 +58,29 @@ io.on('connection', (socket) => {
           };
 
           io.to(socket.id).emit('timerUpdate', safeGameData);
-          io.to(socket.opponent.id).emit('timerUpdate', safeGameData);
+          io.to(opponent.id).emit('timerUpdate', safeGameData);
 
           if (gameData.whiteTime <= 0 || gameData.blackTime <= 0) {
             clearInterval(gameData.interval);
             const winner = gameData.whiteTime <= 0 ? 'black' : 'white';
 
             io.to(socket.id).emit('gameOver', { reason: 'time', winner });
-            if (socket.opponent) {
-              io.to(socket.opponent.id).emit('gameOver', { reason: 'time', winner });
-            }
+            io.to(opponent.id).emit('gameOver', { reason: 'time', winner });
           }
         }, 1000);
       };
 
       startTimer();
-
-      waitingPlayer = null;
     } else {
-      waitingPlayer = socket;
+      console.log(`No opponent found. Adding ${socket.id} to queue.`);  // Corrected log message
+      waitingPlayers.push(socket); // Add player to the queue
+      console.log('Updated Queue:', waitingPlayers);
+
+      // Set a timeout for matchmaking (30 seconds)
+      matchmakingTimeouts[socket.id] = setTimeout(() => {
+        socket.emit('noOpponentFound');
+        waitingPlayers = waitingPlayers.filter(player => player !== socket); // Remove player from queue after timeout
+      }, 30000); // Timeout after 30 seconds
     }
   });
 
@@ -122,16 +129,13 @@ io.on('connection', (socket) => {
             const winner = gameData.turn === 'white' ? 'black' : 'white';
 
             io.to(socket.id).emit('defaultWin', { winner });
-            if (socket.opponent) {
-              io.to(socket.opponent.id).emit('defaultWin', { winner });
-            }
+            io.to(socket.opponent.id).emit('defaultWin', { winner });
           }
         }, 1000);
       }, 60000);
     }
   });
 
-  // ✅ Added gameOver listener for checkmate, stalemate, etc.
   socket.on('gameOver', ({ resultMessage }) => {
     if (socket.opponent) {
       io.to(socket.id).emit('gameOver', { resultMessage });
@@ -144,14 +148,16 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    if (waitingPlayer === socket) {
-      waitingPlayer = null;
-    }
+    console.log(`Player disconnected: ${socket.id}`);  // Add logging here
+    waitingPlayers = waitingPlayers.filter(player => player !== socket);
+
+    clearTimeout(matchmakingTimeouts[socket.id]);
+    delete matchmakingTimeouts[socket.id];
 
     if (socket.opponent) {
       const opponent = socket.opponent;
       opponent.emit('opponentDisconnected');
-
+      
       clearInterval(socket.gameData?.interval);
       clearTimeout(socket.gameData?.inactiveTimeout);
       clearInterval(socket.gameData?.countdownInterval);
