@@ -14,9 +14,9 @@ export default defineConfig({
       input: 'index.html',
     }
   },
-  server: {
-    cors: true,
-    host: '10.0.10.33',
-    port: 8080
-  }
+  // server: {
+  //   cors: true,
+  //   host: '10.0.10.33',
+  //   port: 8080
+  // }
 })

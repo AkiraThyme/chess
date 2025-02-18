@@ -1,42 +1,44 @@
 /*
  * Board
  */
-.chessground.wood .cg-board-wrap {
+.chessground.wood .cg-board {
   position: relative;
   background-image: url('./assets/images/board/wood2.jpg');
   background-size: cover;
 }
 
-.chessground.marble .cg-board-wrap {
+.chessground.marble .cg-board {
   position: relative;
   background-image: url('./assets/images/board/marble.jpg');
   background-size: cover;
 }
-.chessground.light-wood-3d .cg-board-wrap {
+.chessground.light-wood-3d .cg-board {
   position: relative;
   background-image: url('./assets/images/board/3d/Light-Wood.png');
   background-size: cover;
 }
 
 
-.chessground.blue .cg-board-wrap {
+.chessground.blue .cg-board {
   position: relative;
   background-image: url('./assets/images/board/blue2.jpg');
   background-size: cover;
 }
-.chessground.small.light-wood-3d .cg-board-wrap {
+
+
+.chessground.small.light-wood-3d .cg-board {
   width: calc(1400px / 4.6666);
   height: calc(1310px / 4.6666);
 }
-.chessground.large.light-wood-3d .cg-board-wrap {
+.chessground.large.light-wood-3d .cg-board {
   width: calc(1400px / 1);
   height: calc(1310px / 1);
 }
-.chessground.small.blue .cg-board-wrap {
+.chessground.small.blue .cg-board {
   width: calc(1400px / 4.6666);
   height: calc(1310px / 4.6666);
 }
-.chessground.large.blue .cg-board-wrap {
+.chessground.large.blue .cg-board {
   width: calc(1400px / 1);
   height: calc(1310px / 1);
 }

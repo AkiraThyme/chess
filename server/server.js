@@ -34,12 +34,12 @@ io.on('connection', (socket) => {
         turn: 'white',
         interval: null,
         inactiveTimeout: null,
+        countdownInterval: null,
       };
 
       socket.gameData = gameData;
       waitingPlayer.gameData = gameData;
 
-      // Start Timer
       const startTimer = () => {
         gameData.interval = setInterval(() => {
           if (gameData.turn === 'white') {
@@ -54,18 +54,17 @@ io.on('connection', (socket) => {
             turn: gameData.turn,
           };
 
-          if (socket.opponent) {
-            console.log(`Timer Update - ${socket.id}:`, util.inspect(safeGameData, { depth: 5, colors: true }));
-            io.to(socket.id).emit('timerUpdate', safeGameData);
-            io.to(socket.opponent.id).emit('timerUpdate', safeGameData);
-          }
+          io.to(socket.id).emit('timerUpdate', safeGameData);
+          io.to(socket.opponent.id).emit('timerUpdate', safeGameData);
 
           if (gameData.whiteTime <= 0 || gameData.blackTime <= 0) {
             clearInterval(gameData.interval);
             const winner = gameData.whiteTime <= 0 ? 'black' : 'white';
-            console.log(`Game Over - Winner: ${winner}`);
+
             io.to(socket.id).emit('gameOver', { reason: 'time', winner });
-            io.to(socket.opponent.id).emit('gameOver', { reason: 'time', winner });
+            if (socket.opponent) {
+              io.to(socket.opponent.id).emit('gameOver', { reason: 'time', winner });
+            }
           }
         }, 1000);
       };
@@ -79,132 +78,92 @@ io.on('connection', (socket) => {
   });
 
   socket.on('chat message', (data) => {
-    console.log(`Chat message from ${socket.id}:`, util.inspect(data, { depth: 5, colors: true }));
     if (socket.opponent) {
       socket.opponent.emit('chat message', { text: data.text, sender: data.sender });
     }
   });
 
-  // socket.on('move', (data) => {
-  //   console.log(`Move from ${socket.id}:`, util.inspect(data, { depth: 5, colors: true }));
-
-  //   if (socket.opponent && socket.gameData) {
-  //     const gameData = socket.gameData;
-
-  //     gameData.turn = gameData.turn === 'white' ? 'black' : 'white';
-
-  //     io.to(socket.id).emit('move', data);
-  //     io.to(socket.opponent.id).emit('move', data);
-
-  //     const safeGameData = {
-  //       whiteTime: gameData.whiteTime,
-  //       blackTime: gameData.blackTime,
-  //       turn: gameData.turn,
-  //     };
-
-  //     console.log(`Timer Update (After Move) - ${socket.id}:`, util.inspect(safeGameData, { depth: 5, colors: true }));
-  //     io.to(socket.id).emit('timerUpdate', safeGameData);
-  //     io.to(socket.opponent.id).emit('timerUpdate', safeGameData);
-
-  //     // Clear inactivity timeout when a move is made
-  //     clearTimeout(gameData.inactiveTimeout);
-
-  //     // Start a 1-minute inactivity grace period
-  //     gameData.inactiveTimeout = setTimeout(() => {
-  //       let countdown = 30;
-  //       const countdownInterval = setInterval(() => {
-  //         countdown--;
-      
-  //         if (countdown <= 0) {
-  //           clearInterval(countdownInterval);
-  //           clearInterval(gameData.interval);
-      
-  //           const winner = gameData.turn === 'white' ? 'black' : 'white';
-      
-  //           console.log(`Default Win (Inactivity) - Winner: ${winner}`);
-  //           io.to(socket.id).emit('defaultWin', { winner });
-  //           io.to(socket.opponent.id).emit('defaultWin', { winner });
-  //         }
-  //       }, 1000);
-  //     }, 60000);      
-  //   }
-  // });
-
-
   socket.on('move', (data) => {
-    console.log(`Move from ${socket.id}:`, util.inspect(data, { depth: 5, colors: true }));
-  
     if (socket.opponent && socket.gameData) {
       const gameData = socket.gameData;
-  
-      // Switch turn
+
       gameData.turn = gameData.turn === 'white' ? 'black' : 'white';
-  
-      // Reset the timer for the player who just moved
+
       if (gameData.turn === 'white') {
-        gameData.blackTime = 60; // Opponent gets reset after this player's move
+        gameData.blackTime = 60;
       } else {
         gameData.whiteTime = 60;
       }
-  
+
       io.to(socket.id).emit('move', data);
       io.to(socket.opponent.id).emit('move', data);
-  
+
       const safeGameData = {
         whiteTime: gameData.whiteTime,
         blackTime: gameData.blackTime,
         turn: gameData.turn,
       };
-  
-      console.log(`Timer Reset After Move - ${socket.id}:`, util.inspect(safeGameData, { depth: 5, colors: true }));
+
       io.to(socket.id).emit('timerUpdate', safeGameData);
       io.to(socket.opponent.id).emit('timerUpdate', safeGameData);
-  
-      // Clear inactivity timeout when a move is made
+
       clearTimeout(gameData.inactiveTimeout);
-  
-      // Start a new inactivity grace period
+      clearInterval(gameData.countdownInterval);
+
       gameData.inactiveTimeout = setTimeout(() => {
         let countdown = 30;
-        const countdownInterval = setInterval(() => {
+        gameData.countdownInterval = setInterval(() => {
           countdown--;
-      
+
           if (countdown <= 0) {
-            clearInterval(countdownInterval);
             clearInterval(gameData.interval);
-      
+            clearInterval(gameData.countdownInterval);
+
             const winner = gameData.turn === 'white' ? 'black' : 'white';
-      
-            console.log(`Default Win (Inactivity) - Winner: ${winner}`);
+
             io.to(socket.id).emit('defaultWin', { winner });
-            io.to(socket.opponent.id).emit('defaultWin', { winner });
+            if (socket.opponent) {
+              io.to(socket.opponent.id).emit('defaultWin', { winner });
+            }
           }
         }, 1000);
-      }, 60000);      
+      }, 60000);
     }
   });
-  
-  socket.on('disconnect', () => {
-    console.log(`User disconnected: ${socket.id}`);
-  
-    if (waitingPlayer === socket) {
-      waitingPlayer = null;
-    }
-  
+
+  // ✅ Added gameOver listener for checkmate, stalemate, etc.
+  socket.on('gameOver', ({ resultMessage }) => {
     if (socket.opponent) {
-      const opponent = socket.opponent;
-  
-      opponent.emit('opponentDisconnected');
-  
+      io.to(socket.id).emit('gameOver', { resultMessage });
+      io.to(socket.opponent.id).emit('gameOver', { resultMessage });
+
       clearInterval(socket.gameData?.interval);
       clearTimeout(socket.gameData?.inactiveTimeout);
       clearInterval(socket.gameData?.countdownInterval);
-  
+    }
+  });
+
+  socket.on('disconnect', () => {
+    if (waitingPlayer === socket) {
+      waitingPlayer = null;
+    }
+
+    if (socket.opponent) {
+      const opponent = socket.opponent;
+      opponent.emit('opponentDisconnected');
+
+      clearInterval(socket.gameData?.interval);
+      clearTimeout(socket.gameData?.inactiveTimeout);
+      clearInterval(socket.gameData?.countdownInterval);
+
       opponent.gameData = null;
       opponent.opponent = null;
     }
+
+    clearInterval(socket.gameData?.interval);
+    clearTimeout(socket.gameData?.inactiveTimeout);
+    clearInterval(socket.gameData?.countdownInterval);
   });
-  
 });
 
 server.listen(8076, '10.0.10.33', () => {

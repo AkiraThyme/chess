@@ -20,6 +20,13 @@ socket.on('chat message', (msg) => {
 });
 
 
+socket.on('gameOver', (data) => {
+  alert(`Game Over! Winner: ${data.winner}. Reason: ${data.reason}`);
+  // You can show your custom popup/modal logic here
+  showGameOverPopup(data.winner, data.reason);
+});
+
+
 // Handle opponent's move
 socket.on('move', (moveData) => {
   console.log('Received move from opponent:', moveData);

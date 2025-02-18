@@ -1,5 +1,5 @@
 <template>
-  <div class="game-container" :class="computedTheme">
+  <div class="game-container">
     <div>
       <BoardTimer />
     </div>
@@ -11,13 +11,16 @@
       </div>
 
       <div class="chessboard-container">
-        <div ref="board" class="chessboard"></div>
+        <div ref="board" class="chessboard blue"></div>
       </div>
+
+      <ListPopup />
 
       <div class="history-container">
         <PgnHistory :history="moveHistory"  />
       </div>
     </div>
+
   </div>
 </template>
 
@@ -37,13 +40,14 @@ import PgnHistory from '../util/PgnHistory.vue';
 import Chat from '../chat/Chat.vue';
 import Swal from 'sweetalert2';
 import socket from '../../services/socket'; // Use shared socket
+import ListPopup from '../util/ListPopup.vue';
 
 export default {
   props: {
     theme: { type: String, default: 'marble' },
     pieceStyle: { type: String, default: 'cburnett' }
   },
-  components: { BoardTimer, PgnHistory, Chat },
+  components: { BoardTimer, PgnHistory, Chat, ListPopup },
   data() {
     return {
       chess: new Chess(),
@@ -52,15 +56,22 @@ export default {
       isGameOver: false,
       isPlayerVsPlayer: false,
       playerColor: null,
-      opponentFound: false
+      opponentFound: false,
+      selectedTheme: this.theme
     };
   },
   computed: {
     computedTheme() {
-      return this.theme ? `theme-${this.theme}` : 'theme-wood2';
+      console.log("Applying theme:", this.selectedTheme);
+      return this.selectedTheme ? `chessground ${this.selectedTheme}` : "chessground marble";
     },
     shouldShowChat() {
       return this.isPlayerVsPlayer && this.opponentFound;
+    }
+  },
+  watch: {
+    selectedTheme() {
+      this.updateTheme();
     }
   },
   created() {
@@ -83,6 +94,26 @@ export default {
       });
 
       this.initializeBoard();
+    });
+
+
+    socket.on('gameOver', (data) => {
+      Swal.fire({
+        title: 'Game Over',
+        text: data.resultMessage,
+        icon: 'info',
+        showDenyButton: true,
+        showCancelButton: true,
+        confirmButtonText: 'Find New Opponent',
+        denyButtonText: 'Analyze Board',
+        cancelButtonText: 'Close'
+      }).then((result) => {
+        if (result.isConfirmed) {
+          this.resetGamePrompt();
+        } else if (result.isDenied) {
+          this.analyzeBoard();
+        }
+      });
     });
 
     socket.on('defaultWin', (data) => {
@@ -165,9 +196,10 @@ export default {
           dests: this.getLegalMoves(),
           events: { after: this.onUserMove }
         },
-        highlight: { lastMove: true, check: true },
+        // highlight: { lastMove: true, check: true },
         drawable: { enabled: true },
-        showDests: true
+        // showDests: true,
+        
       });
 
       this.updateBoard();
@@ -180,6 +212,23 @@ export default {
         movable: { dests: this.getLegalMoves() }
       });
     },
+    
+    updateTheme(){
+      document.documentElement.setAttribute('data-theme', this.selectedTheme);
+      const board = this.$refs.board;
+      if (board) {
+        board.className = `chessboard ${this.selectedTheme}`;
+      }
+    },
+
+    analyzeBoard() {
+      Swal.fire({
+        title: 'Analysis Mode',
+        text: 'Feature under development! You can manually review moves in the history.',
+        icon: 'info'
+      });
+    },
+
     onUserMove(orig, dest) {
       if (this.isPlayerVsPlayer && this.chess.turn() !== this.playerColor[0]) {
         console.log('Not your turn!');
@@ -248,20 +297,76 @@ export default {
       this.updateBoard();
       store.startTimer();
     },
+    // checkGameOver() {
+    //   if (this.chess.isCheckmate() || this.chess.isDraw() || this.chess.isStalemate()) {
+    //     this.isGameOver = true;
+
+    //     let resultMessage = this.chess.isCheckmate()
+    //       ? `${this.chess.turn() === 'w' ? 'Black' : 'White'} wins by checkmate!`
+    //       : this.chess.isStalemate()
+    //       ? 'Stalemate! The game is a draw.'
+    //       : 'Draw by insufficient material or other rule.';
+
+    //     Swal.fire({
+    //       title: 'Game Over',
+    //       text: resultMessage,
+    //       icon: 'info',
+    //       showDenyButton: true,
+    //       showCancelButton: true,
+    //       confirmButtonText: 'Find New Opponent',
+    //       denyButtonText: 'Analyze Board',
+    //       cancelButtonText: 'Close'
+    //     }).then((result) => {
+    //       if (result.isConfirmed) {
+    //         this.resetGamePrompt();
+    //       } else if (result.isDenied) {
+    //         this.analyzeBoard();
+    //       }
+    //     });
+
+    //     // // Optionally emit the game over event to both players
+    //     // if (this.isPlayerVsPlayer) {
+    //     //   socket.emit('gameOver', { resultMessage });
+    //     // }
+    //   }
+    // },
+
     checkGameOver() {
       if (this.chess.isCheckmate() || this.chess.isDraw() || this.chess.isStalemate()) {
         this.isGameOver = true;
-        Swal.fire(
-          'Game Over',
-          this.chess.isCheckmate()
-            ? `${this.chess.turn() === 'w' ? 'Black' : 'White'} wins!`
-            : 'Draw!',
-          'info'
-        ).then(() => {
-          this.resetGamePrompt();
+
+        let resultMessage = this.chess.isCheckmate()
+          ? `${this.chess.turn() === 'w' ? 'Black' : 'White'} wins by checkmate!`
+          : this.chess.isStalemate()
+          ? 'Stalemate! The game is a draw.'
+          : 'Draw by insufficient material or other rule.';
+
+        // Emit game over event to both players through the server
+        if (this.isPlayerVsPlayer) {
+          socket.emit('gameOver', { resultMessage });
+        }
+
+        // Show local popup for the player who detected it
+        Swal.fire({
+          title: 'Game Over',
+          text: resultMessage,
+          icon: 'info',
+          showDenyButton: true,
+          showCancelButton: true,
+          confirmButtonText: 'Find New Opponent',
+          denyButtonText: 'Analyze Board',
+          cancelButtonText: 'Close',
+        }).then((result) => {
+          if (result.isConfirmed) {
+            this.resetGamePrompt();
+          } else if (result.isDenied) {
+            this.analyzeBoard();
+          }
         });
       }
     },
+
+
     resetGamePrompt() {
       this.chess.reset();
       this.moveHistory = [];
@@ -273,6 +378,8 @@ export default {
         title: 'Choose Game Mode',
         text: 'Play vs AI or Find a Player?',
         icon: 'question',
+        allowOutsideClick: false,
+        allowEscapeKey: false,
         showCancelButton: true,
         confirmButtonText: 'Play vs AI',
         cancelButtonText: 'Find Player',
@@ -306,7 +413,7 @@ export default {
   },
   beforeUnmount() {
     // socket.disconnect();
-  }
+  },
 };
 </script>
 
@@ -420,5 +527,30 @@ export default {
   background-color: #e53935 !important;
 }
 
+.move-tooltip {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: #f0f0f0;
+  border: 1px solid #ccc;
+  padding: 10px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.move-tooltip ul {
+  list-style-type: none;
+  margin: 0;
+  padding: 0;
+}
+
+.move-tooltip li {
+  padding: 5px;
+  cursor: pointer;
+}
+
+.move-tooltip li:hover {
+  background-color: #f4f4f4;
+}
 
 </style>
